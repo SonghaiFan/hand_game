@@ -330,9 +330,16 @@ function updateGame() {
 
 function triggerAction() {
   gameState = STATE_ACTION;
-  playBeatSound(600, 0.2, "square");
+  
+  // 1. Calculate Actions First
   playerAction = detectPlayerAction();
   aiAction = decideAIAction();
+
+  // 2. Play Rhythm Sound (The "Da" Beat)
+  // Playing it here ensures it's tightly synced with the move sounds in processResult
+  playBeatSound(600, 0.2, "square");
+
+  // 3. Process Result & Play Move Sounds (Gunshot/Luck etc)
   processResult();
 
   setTimeout(() => {
@@ -380,48 +387,21 @@ function startRound() {
 }
 
 function playBeatSound(freq, duration, type) {
-  // Simulate Crisper Clap/Snap Sounds
-  
-  let noiseType = "white";
-  let attackTime = 0.001; // Instant attack for crispness
-  let decayTime = 0.1;
-  let amplitude = 0.5;
-  let filterFreq = 1000; // High pass to remove mud
+  // Use loaded CLAP sound for rhythm instead of synthetic noise
+  if (!sndClap || !sndClap.isLoaded()) return;
 
   // Differentiate "Dong" (Beat) vs "Da" (Action)
   if (freq > 400) { 
-    // Action (Sharp High Snap)
-    decayTime = 0.15;
-    amplitude = 0.7;
-    filterFreq = 1200; // Higher pitch center
+    // Action (Sharp/Loud)
+    sndClap.rate(1.2); // Pitch up slightly for the "Da"
+    sndClap.setVolume(0.8);
+    sndClap.play();
   } else {
-    // Beat (Short Light Tap)
-    // Using white noise instead of pink for clarity
-    decayTime = 0.05; 
-    amplitude = 0.3;
-    filterFreq = 800;
+    // Beat (Normal/Soft)
+    sndClap.rate(1.0);
+    sndClap.setVolume(0.4);
+    sndClap.play();
   }
-
-  let noise = new p5.Noise(noiseType);
-  let env = new p5.Envelope();
-  let filter = new p5.HighPass();
-
-  // Route: Noise -> Filter -> Output
-  noise.disconnect();
-  noise.connect(filter);
-  filter.freq(filterFreq);
-
-  env.setADSR(attackTime, decayTime, 0.0, 0.01); 
-  env.setRange(amplitude, 0);
-  
-  noise.start();
-  env.play(noise);
-  
-  // Cleanup
-  setTimeout(() => {
-    noise.stop();
-    // filters don't always need explicit stop/dispose in simple simple p5 sketches but good usage ensures no buildup
-  }, decayTime * 1000 + 200);
 }
 
 function playClapSound() {
