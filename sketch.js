@@ -31,13 +31,17 @@ let adaptiveInterval = 800;
 let clapThreshold = 100;
 let canClapAgain = true; // prevent multiple triggers per clap
 
+// DOM Elements
+let playerQiFill, aiQiFill, resultMsg, beats, overlay, overlayTitle, overlayMsg, startBtn, aiActionIcon, startState;
+let modelReady = false;
+
 function preload() {
-  // ml5 v1 handPose initialization
-  // We'll handle flipping manually in the draw loop, so set flipped to false
   handPose = ml5.handPose({ maxHands: 2, flipped: false });
 }
 
 function setup() {
+  const container = document.getElementById("game-container");
+  
   let canvas = createCanvas(640, 480);
   canvas.parent("game-container");
 
@@ -47,140 +51,99 @@ function setup() {
 
   handPose.detectStart(video, gotHands);
 
+  // Initialize DOM references
+  playerQiFill = document.getElementById("player-qi-fill");
+  aiQiFill = document.getElementById("ai-qi-fill");
+  resultMsg = document.getElementById("result-message");
+  beats = [
+    document.getElementById("beat1"),
+    document.getElementById("beat2"),
+    document.getElementById("beat3")
+  ];
+  overlay = document.getElementById("overlay");
+  overlayTitle = document.getElementById("overlay-title");
+  overlayMsg = document.getElementById("overlay-msg");
+  startBtn = document.getElementById("start-btn");
+  aiActionIcon = document.getElementById("ai-action-icon");
+  startState = document.getElementById("start-state");
+
+  startBtn.addEventListener("click", () => {
+    userStartAudio();
+    startGame();
+  });
+
   textAlign(CENTER, CENTER);
   textSize(32);
 }
 
+function startGame() {
+  gameStarted = true;
+  gameOver = false;
+  playerQi = 0;
+  aiQi = 0;
+  gameState = STATE_WAITING;
+  clapsFound = 0;
+  overlay.classList.add("hidden");
+  resultMsg.innerText = "等待拍手开始...";
+  updateUIDOM();
+}
+
 function gotHands(results) {
   hands = results;
+  // Once we get any results, enable the start button
+  if (!modelReady) {
+    modelReady = true;
+    startBtn.disabled = false;
+    startBtn.innerText = "点击开始 / START";
+  }
 }
 
 function draw() {
-  background(20);
+  background(0);
 
-  // Detect Clap continuously if the game is active
   if (gameStarted && !gameOver) {
     checkPlayerClap();
   }
 
-  // Main Display Area (AI Opponent)
-  drawAI();
-
-  // Mini Map / Mirror View (Player) in Bottom Right
+  // Draw mirrored video and hand markers
   push();
-  let miniW = 160;
-  let miniH = 120;
-  let margin = 20;
-  translate(width - miniW - margin, height - miniH - margin);
-
-  // Draw mini background/border
-  fill(0);
-  stroke(255, 100);
-  rect(-2, -2, miniW + 4, miniH + 4);
-
-  // Draw mirrored video
-  push();
-  translate(miniW, 0);
+  translate(width, 0);
   scale(-1, 1);
-  image(video, 0, 0, miniW, miniH);
+  image(video, 0, 0, width, height);
 
-  // Draw markers scaled down for mini view
-  let scaleFactor = miniW / video.width;
   for (let i = 0; i < hands.length; i++) {
     let hand = hands[i];
     for (let j = 0; j < hand.keypoints.length; j++) {
       let kp = hand.keypoints[j];
       fill(0, 255, 0);
       noStroke();
-      circle(kp.x * scaleFactor, kp.y * scaleFactor, 4);
+      circle(kp.x, kp.y, 8);
     }
   }
   pop();
-  pop();
 
-  // Game logic
   updateGame();
-
-  // HUD
-  drawUI();
+  updateUIDOM();
 }
 
-function drawAI() {
-  // Simple AI character representation
-  push();
-  translate(width / 2, height / 2 + 20);
-
-  // Body
-  fill(100, 100, 250);
-  noStroke();
-  rect(-50, 0, 100, 100, 10);
-
-  // Head
-  fill(255, 200, 150);
-  circle(0, -40, 80);
-
-  // Eyes
-  fill(0);
-  circle(-15, -45, 10);
-  circle(15, -45, 10);
-
-  // AI Animation / Action
-  if (
-    gameState === STATE_BEAT1 ||
-    gameState === STATE_BEAT2 ||
-    gameState === STATE_WAITING
-  ) {
-    // Clapping animation based on clap progress
-    let clapFactor = 0;
-    if (gameState === STATE_BEAT1) clapFactor = sin((millis() - t1) * 0.01);
-    if (gameState === STATE_BEAT2) clapFactor = sin((millis() - t2) * 0.01);
-
-    let clapOffset = map(abs(clapFactor), 0, 1, 0, 40);
-    fill(255, 200, 150);
-    ellipse(-60 + clapOffset, 40, 30, 45); // Left Hand
-    ellipse(60 - clapOffset, 40, 30, 45); // Right Hand
-  } else if (
-    gameState === STATE_ACTION ||
-    (gameState === STATE_RESULT && !gameOver)
-  ) {
-    drawAIGesture(aiAction);
-  } else if (gameOver) {
-    // If AI lost/won show reaction
-    textSize(40);
-    text(aiQi <= 0 && resultMessage.includes("赢") ? "O皿O" : "^_^", 0, -35);
-  }
-  pop();
-}
-
-function drawAIGesture(action) {
-  push();
-  textSize(60);
-  let gestureIcon = "🤔";
+function updateAIActionDOM(action) {
+  let gestureIcon = "";
   if (action === "LUCK") gestureIcon = "✊✊";
   if (action === "ATTACK") gestureIcon = "👉";
   if (action === "DEFENSE") gestureIcon = "🙅";
-
-  fill(255);
-  text(gestureIcon, 0, 80);
-  pop();
-}
-
-function drawHands() {
-  // This is now moved into the mini-view logic in draw()
+  
+  if (aiActionIcon.innerText !== gestureIcon) {
+      aiActionIcon.innerText = gestureIcon;
+      // Trigger animation
+      aiActionIcon.classList.remove("pop");
+      void aiActionIcon.offsetWidth; // force reflow
+      if (gestureIcon !== "") aiActionIcon.classList.add("pop");
+  }
 }
 
 function updateGame() {
-  if (!gameStarted) {
-    fill(255);
-    text("点击屏幕开始游戏", width / 2, height / 2);
-    return;
-  }
+  if (!gameStarted || gameOver) return;
 
-  if (gameOver) {
-    return;
-  }
-
-  // Adaptive logic: If we've had 2 claps, trigger "Da" after the same interval
   if (gameState === STATE_BEAT2) {
     let currentTime = millis();
     if (currentTime - t2 > adaptiveInterval) {
@@ -191,12 +154,11 @@ function updateGame() {
 
 function triggerAction() {
   gameState = STATE_ACTION;
-  playBeatSound(600, 0.2, "square"); // Sharp Da
+  playBeatSound(600, 0.2, "square");
   playerAction = detectPlayerAction();
   aiAction = decideAIAction();
   processResult();
 
-  // Reset to waiting after a short delay to show result
   setTimeout(() => {
     if (!gameOver) {
       gameState = STATE_WAITING;
@@ -219,7 +181,7 @@ function checkPlayerClap() {
       clapped();
       canClapAgain = false;
     } else if (d > clapThreshold + 50) {
-      canClapAgain = true; // reset only when hands move apart
+      canClapAgain = true;
     }
   }
 }
@@ -234,8 +196,7 @@ function clapped() {
     playBeatSound(300, 0.1, "triangle");
   } else if (clapsFound === 2) {
     t2 = millis();
-    adaptiveInterval = t2 - t1; // Remember the pace
-    // Clamp interval to reasonable values
+    adaptiveInterval = t2 - t1;
     adaptiveInterval = constrain(adaptiveInterval, 400, 1500);
     gameState = STATE_BEAT2;
     playBeatSound(300, 0.1, "triangle");
@@ -252,7 +213,6 @@ function playBeatSound(freq, duration, type) {
 }
 
 function playAttackSound() {
-  // Synthesis of a simple gunshot-like sound
   let noise = new p5.Noise("white");
   let env = new p5.Envelope();
   env.setADSR(0.001, 0.1, 0.1, 0.1);
@@ -261,7 +221,6 @@ function playAttackSound() {
   env.play(noise);
   setTimeout(() => noise.stop(), 300);
 
-  // Add a low thump
   let osc = new p5.Oscillator("sine");
   osc.freq(100);
   osc.amp(0.5, 0.05);
@@ -282,33 +241,19 @@ function playClapSound() {
 }
 
 function detectPlayerAction() {
-  if (hands.length === 0) return "DEFENSE"; // Default to defense if no hands detected
+  if (hands.length === 0) return "DEFENSE";
 
   let handStates = hands.map((h) => getHandState(h));
 
-  // 1. ATTACK: If any hand looks like a gun, it's an attack (High priority)
-  if (handStates.includes("GUN")) {
-    return "ATTACK";
-  }
-
-  // 2. LUCK: Must have two hands, and both should be fists
-  if (hands.length === 2 && handStates.every((s) => s === "FIST")) {
-    return "LUCK";
-  }
-
-  // 3. DEFENSE: Must have two hands, and both should be open
-  if (hands.length === 2 && handStates.every((s) => s === "OPEN")) {
-    return "DEFENSE";
-  }
+  if (handStates.includes("GUN")) return "ATTACK";
+  if (hands.length === 2 && handStates.every((s) => s === "FIST")) return "LUCK";
+  if (hands.length === 2 && handStates.every((s) => s === "OPEN")) return "DEFENSE";
 
   return "NONE";
 }
 
 function getHandState(hand) {
   let kp = hand.keypoints;
-
-  // Helper to check if finger is extended
-  // Distance from tip to wrist vs mid-joint to wrist
   const isExtended = (tipIdx, jointIdx) => {
     let dTip = dist(kp[tipIdx].x, kp[tipIdx].y, kp[0].x, kp[0].y);
     let dJoint = dist(kp[jointIdx].x, kp[jointIdx].y, kp[0].x, kp[0].y);
@@ -320,73 +265,43 @@ function getHandState(hand) {
   let ringExt = isExtended(16, 14);
   let pinkyExt = isExtended(20, 18);
 
-  // Gun: index extended, others curled (vague check for thumb)
-  if (indexExt && !middleExt && !ringExt && !pinkyExt) {
-    return "GUN";
-  }
-
-  // Fist: all four curled
-  if (!indexExt && !middleExt && !ringExt && !pinkyExt) {
-    return "FIST";
-  }
-
-  // Open: all extended
-  if (indexExt && middleExt && ringExt && pinkyExt) {
-    return "OPEN";
-  }
+  if (indexExt && !middleExt && !ringExt && !pinkyExt) return "GUN";
+  if (!indexExt && !middleExt && !ringExt && !pinkyExt) return "FIST";
+  if (indexExt && middleExt && ringExt && pinkyExt) return "OPEN";
 
   return "UNKNOWN";
 }
 
 function decideAIAction() {
-  // Advanced AI Logic
-
-  // 1. Kill Shot: If player has no Qi or just did luck, and AI has Qi, aim to attack
   if (aiQi >= 0.5) {
-    // If AI has lots of Qi, be more aggressive
     let attackChance = 0.3;
-
-    // If player is accumulating Qi (just did luck or has low Qi), pressure them
     if (playerQi < 0.5) attackChance = 0.6;
-
     let r = random();
     if (r < attackChance) return "ATTACK";
     if (r < attackChance + 0.25) return "DEFENSE";
     return "LUCK";
   }
-
-  // 2. Desperation / Build-up
-  // If AI has no Qi, it MUST Luck or Defense
-  // If player has Qi, AI should Defense more often to avoid being sniped
-  if (playerQi >= 0.5) {
-    return random() < 0.4 ? "LUCK" : "DEFENSE";
-  }
-
+  if (playerQi >= 0.5) return random() < 0.4 ? "LUCK" : "DEFENSE";
   return random() < 0.8 ? "LUCK" : "DEFENSE";
 }
 
 function processResult() {
   let playerHit = false;
   let aiHit = false;
-
   let playerAttacking = playerAction === "ATTACK" && playerQi >= 0.5;
   let aiAttacking = aiAction === "ATTACK" && aiQi >= 0.5;
 
-  // Resolve Actions
   if (playerAttacking && aiAttacking) {
-    // Both attack: cancel each other out
     playerQi -= 0.5;
     aiQi -= 0.5;
     resultMessage = "双方对攻，子弹抵消！";
     playAttackSound();
   } else {
-    // Standard resolution
     if (playerAttacking) {
       playerQi -= 0.5;
       if (aiAction === "LUCK") aiHit = true;
       playAttackSound();
     }
-
     if (aiAttacking) {
       aiQi -= 0.5;
       if (playerAction === "LUCK") playerHit = true;
@@ -394,11 +309,9 @@ function processResult() {
     }
   }
 
-  // Bonuses
   if (playerAction === "LUCK") playerQi += 1;
   if (aiAction === "LUCK") aiQi += 1;
 
-  // Messages and Reset
   if (playerHit && aiHit) {
     resultMessage = "同归于尽！双方在集气时被击中";
     winner = "BOTH";
@@ -418,101 +331,167 @@ function processResult() {
 
 function translateAction(a) {
   switch (a) {
-    case "LUCK":
-      return "集气 (运气)";
-    case "ATTACK":
-      return "攻击";
-    case "DEFENSE":
-      return "防御";
-    case "NONE":
-      return "准备 (无效)";
-    default:
-      return a;
+    case "LUCK": return "集气 (运气)";
+    case "ATTACK": return "攻击";
+    case "DEFENSE": return "防御";
+    case "NONE": return "准备 (无效)";
+    default: return a;
   }
 }
 
-function drawUI() {
-  // Draw status bar
-  fill(0, 150);
-  noStroke();
-  rect(0, 0, width, 100);
+function updateUIDOM() {
+  if (!gameStarted) return;
+  playerQiFill.style.width = `${constrain(playerQi * 20, 0, 100)}%`;
+  aiQiFill.style.width = `${constrain(aiQi * 20, 0, 100)}%`;
+  beats.forEach(b => b.classList.remove('active'));
+  if (gameState === STATE_BEAT1) beats[0].classList.add('active');
+  if (gameState === STATE_BEAT2) beats[1].classList.add('active');
+  if (gameState === STATE_ACTION) beats[2].classList.add('active');
 
-  fill(255);
-  textSize(22);
-  textAlign(LEFT);
-  text(`玩家 气: ${playerQi.toFixed(1)}`, 20, 35);
-  textAlign(RIGHT);
-  text(`AI 气: ${aiQi.toFixed(1)}`, width - 20, 35);
-
-  // Current detection preview
-  textAlign(CENTER);
-  textSize(18);
-  fill(200, 255, 200);
-  let currentPos = detectPlayerAction();
-  text(`预测: ${translateAction(currentPos)}`, width / 2, 90);
-
-  textAlign(CENTER);
-  textSize(50);
   if (gameState === STATE_WAITING) {
-    fill(255, 200, 0);
-    text("请拍手开始...", width / 2, 60);
-  } else if (gameState === STATE_BEAT1 || gameState === STATE_BEAT2) {
-    fill(255, 200, 0);
-    text("咚", width / 2, 60);
-  } else if (gameState === STATE_ACTION) {
-    fill(255, 0, 0);
-    text("哒！", width / 2, 60);
+    let prediction = detectPlayerAction();
+    resultMsg.innerText = `预测: ${translateAction(prediction)} | 准备拍手...`;
+    resultMsg.style.color = "var(--ink)";
+    updateAIActionDOM("NONE");
+  } else if (gameState === STATE_ACTION || gameState === STATE_RESULT) {
+    resultMsg.innerText = resultMessage;
+    resultMsg.style.color = "var(--accent-bleed)";
+    updateAIActionDOM(aiAction);
   }
 
-  if (gameState === STATE_RESULT) {
-    fill(255, 255, 0);
-    textSize(32);
-    text(resultMessage, width / 2, height - 80);
-    textSize(20);
-    text(
-      `玩家: ${translateAction(playerAction)}  |  AI: ${translateAction(aiAction)}`,
-      width / 2,
-      height - 40,
-    );
-    if (gameOver) {
-      push();
-      textSize(60);
-      stroke(0);
-      strokeWeight(4);
-      if (winner === "PLAYER") {
-        fill(0, 255, 0);
-        text("🏆 你赢了！", width / 2, height / 2 - 40);
-      } else if (winner === "AI") {
-        fill(255, 0, 0);
-        text("💀 AI 赢了！", width / 2, height / 2 - 40);
-      } else if (winner === "BOTH") {
-        fill(255, 255, 0);
-        text("🤝 同归于尽！", width / 2, height / 2 - 40);
-      }
-
-      fill(255);
-      noStroke();
-      textSize(24);
-      text("点击屏幕重新开始", width / 2, height / 2 + 40);
-      pop();
-    }
+  if (gameOver) {
+    overlay.classList.remove("hidden");
+    overlayTitle.innerHTML = winner === "PLAYER" ? "🏆 你赢了！" : (winner === "AI" ? "💀 AI 赢了！" : "🤝 同归于尽！");
+    overlayMsg.innerText = resultMessage;
+    startBtn.innerText = "重新开始 / RESTART";
   }
 }
 
 function mousePressed() {
-  if (!gameStarted) {
-    userStartAudio();
-    gameStarted = true;
-    gameState = STATE_WAITING;
-    clapsFound = 0;
-  } else if (gameOver) {
-    // Reset game
-    playerQi = 0;
-    aiQi = 0;
-    gameOver = false;
-    clapsFound = 0;
-    canClapAgain = true;
-    gameState = STATE_WAITING;
-    resultMessage = "新一局开始！";
-  }
+  if (gameOver) startGame();
 }
+
+// Subtle parallax/tilt effect
+document.addEventListener('mousemove', (e) => {
+    const x = (e.clientX / window.innerWidth - 0.5) * 10;
+    const y = (e.clientY / window.innerHeight - 0.5) * 10;
+    const stage = document.querySelector('.game-stage');
+    if (stage) stage.style.transform = `rotateY(${x}deg) rotateX(${-y}deg)`;
+});
+
+// AIAvatar Instance Mode for a sketchy, hand-drawn character
+const aiAvatarSketch = (p) => {
+    let w = 300;
+    let h = 300;
+    
+    p.setup = () => {
+        let canvas = p.createCanvas(w, h);
+        canvas.parent("ai-avatar-container");
+    };
+
+    p.draw = () => {
+        p.clear();
+        p.stroke(0);
+        p.noFill();
+        
+        if (!gameStarted) return;
+
+        // Smooth breathing
+        let breath = p.sin(p.frameCount * 0.1) * 3;
+        
+        p.push();
+        p.translate(p.width/2, p.height/2 + 40);
+        
+        // Body
+        p.strokeWeight(3);
+        sketchyArc(p, 0, 40, 140, 100, p.PI, p.TWO_PI);
+        
+        // Head - subtle jump on action
+        let headY = -70 + breath;
+        if (gameState === STATE_ACTION) headY -= 15;
+        
+        p.strokeWeight(2.5);
+        sketchyEllipse(p, 0, headY, 60, 75);
+        
+        // Face
+        p.strokeWeight(2);
+        if (gameState === STATE_RESULT && winner === "AI") {
+            // Happy
+            sketchyArc(p, -12, headY - 5, 12, 10, p.PI, p.TWO_PI);
+            sketchyArc(p, 12, headY - 5, 12, 10, p.PI, p.TWO_PI);
+            sketchyArc(p, 0, headY + 15, 20, 15, 0, p.PI);
+        } else if (gameState === STATE_RESULT && winner === "PLAYER") {
+            // Sad
+            sketchyLine(p, -15, headY - 10, -5, headY);
+            sketchyLine(p, 15, headY - 10, 5, headY);
+            sketchyArc(p, 0, headY + 25, 20, 10, p.PI, p.TWO_PI);
+        } else {
+            // Neutral
+            sketchyEllipse(p, -12, headY, 6, 6);
+            sketchyEllipse(p, 12, headY, 6, 6);
+            sketchyLine(p, -10, headY + 20, 10, headY + 20);
+        }
+
+        // Action-specific arms/poses
+        p.strokeWeight(3);
+        if (aiAction === "LUCK") {
+            // "Gathering Qi" - arms wide
+            sketchyArc(p, -50, headY + 40, 40, 40, p.HALF_PI, p.PI + p.HALF_PI);
+            sketchyArc(p, 50, headY + 40, 40, 40, -p.HALF_PI, p.HALF_PI);
+        } else if (aiAction === "ATTACK") {
+            // "Gun" gesture forward
+            sketchyLine(p, 0, headY + 60, 60, headY + 60);
+            sketchyLine(p, 60, headY + 60, 50, headY + 50);
+            sketchyEllipse(p, 65, headY + 60, 10, 10); // bullet start?
+        } else if (aiAction === "DEFENSE") {
+            // "X" block
+            sketchyLine(p, -40, headY + 50, 40, headY + 100);
+            sketchyLine(p, 40, headY + 50, -40, headY + 100);
+        }
+        
+        p.pop();
+    };
+
+    function sketchyLine(p, x1, y1, x2, y2) {
+        let steps = 8;
+        p.beginShape();
+        for(let i=0; i<=steps; i++){
+            let x = p.lerp(x1, x2, i/steps);
+            let y = p.lerp(y1, y2, i/steps);
+            x += p.noise(x * 0.05, y * 0.05, p.frameCount * 0.1) * 6 - 3;
+            y += p.noise(y * 0.05, x * 0.05, p.frameCount * 0.1) * 6 - 3;
+            p.vertex(x, y);
+        }
+        p.endShape();
+    }
+
+    function sketchyEllipse(p, x, y, w, h) {
+        let steps = 16;
+        p.beginShape();
+        for(let i=0; i<=steps; i++){
+            let angle = p.map(i, 0, steps, 0, p.TWO_PI);
+            let px = x + p.cos(angle) * w/2;
+            let py = y + p.sin(angle) * h/2;
+            px += p.noise(px * 0.05, py * 0.05, p.frameCount * 0.1) * 6 - 3;
+            py += p.noise(py * 0.05, px * 0.05, p.frameCount * 0.1) * 6 - 3;
+            p.vertex(px, py);
+        }
+        p.endShape(p.CLOSE);
+    }
+
+    function sketchyArc(p, x, y, w, h, start, end) {
+        let steps = 12;
+        p.beginShape();
+        for(let i=0; i<=steps; i++){
+            let angle = p.map(i, 0, steps, start, end);
+            let px = x + p.cos(angle) * w/2;
+            let py = y + p.sin(angle) * h/2;
+            px += p.noise(px * 0.05, py * 0.05, p.frameCount * 0.1) * 6 - 3;
+            py += p.noise(py * 0.05, px * 0.05, p.frameCount * 0.1) * 6 - 3;
+            p.vertex(px, py);
+        }
+        p.endShape();
+    }
+};
+
+new p5(aiAvatarSketch);

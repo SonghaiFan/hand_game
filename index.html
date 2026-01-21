@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>拍手游戏 - Hand Clap Game</title>
+    <title>Clap Rhythm - Hand-Drawn Viscous UI</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.0/p5.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.0/addons/p5.sound.min.js"></script>
     <script src="https://unpkg.com/ml5@1/dist/ml5.min.js"></script>
@@ -12,17 +12,96 @@
 </head>
 
 <body>
-    <div id="game-container"></div>
-    <div id="instructions">
-        <h2>拍手游戏 (Hand Clap Game)</h2>
-        <p>跟着节奏: <b>咚 (拍) - 咚 (拍) - 哒 (决策)</b></p>
-        <ul>
-            <li><b>运气 (Luck):</b> 双手握拳分开。增加 1 个气。</li>
-            <li><b>攻击 (Attack):</b> 做出枪型手势。消耗 0.5 个气。如果在对方运气时攻击，则获胜。</li>
-            <li><b>防御 (Defense):</b> 双手伸开并交叉在胸前。抵挡攻击，不消耗气。</li>
-        </ul>
-        <p>若无人获胜，则循环继续。<b>请点击屏幕开始并将双手置于摄像头可见范围内。</b></p>
-    </div>
+    <div id="p5_loading" class="hidden"></div>
+    <svg class="ink-filter">
+        <filter id="ink-bleed">
+            <feTurbulence type="fractalNoise" baseFrequency="0.015" numOctaves="4" seed="5" result="noise" />
+            <feDisplacementMap in="SourceGraphic" in2="noise" scale="4" />
+            <feColorMatrix type="matrix" values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 1 0" />
+        </filter>
+    </svg>
+
+    <div class="paper-texture"></div>
+
+    <div class="blot" style="width: 400px; height: 400px; top: -100px; left: -100px;"></div>
+    <div class="blot" style="width: 300px; height: 300px; bottom: -50px; right: 10%; background: var(--accent-bleed);"></div>
+
+    <main class="game-stage">
+        <!-- Unified Overlay -->
+        <div id="overlay" class="overlay">
+            <div class="overlay-content">
+                <div id="start-state">
+                    <h1 id="overlay-title" class="title">拍手节奏<br>HAND CLAP</h1>
+                    <p id="overlay-msg">将双手置于摄像头可见范围内</p>
+                    <button id="start-btn" class="start-btn" disabled>正在加载 / LOADING...</button>
+                </div>
+            </div>
+        </div>
+
+        <section class="arena">
+            <div class="header">
+                <h1 class="title">拍手节奏<br>HAND CLAP</h1>
+                <span class="subtitle">v1.1.0 — VISCOUS_PIGMENT_ENGINE</span>
+            </div>
+
+            <div class="rhythm-track">
+                <div class="beat" id="beat1">咚</div>
+                <div class="beat" id="beat2">咚</div>
+                <div class="beat decision" id="beat3">哒</div>
+                <div style="margin-left: 20px; font-style: italic; opacity: 0.5;">(DECISION)</div>
+            </div>
+
+            <div id="result-message">等待开始...</div>
+
+            <div class="legend">
+                <div class="legend-item">
+                    <div class="legend-icon">✊</div>
+                    <div class="legend-text"><b>运气 (LUCK)</b><br>双手握拳。增加 1 个气。</div>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-icon">🔫</div>
+                    <div class="legend-text"><b>攻击 (ATTACK)</b><br>消耗 0.5 气。克制“运气”。</div>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-icon">🙅</div>
+                    <div class="legend-text"><b>防御 (DEFENSE)</b><br>交叉胸前。抵挡攻击。</div>
+                </div>
+            </div>
+        </section>
+
+        <section class="sidebar">
+            <!-- AI Panel -->
+            <div class="side-panel ai-panel">
+                <div class="view-box">
+                    <div id="ai-avatar-container" class="ai-avatar-container"></div>
+                    <div id="ai-action-icon" class="action-icon"></div>
+                </div>
+                <div class="qi-meter">
+                    <span class="qi-label">OPPONENT_ENERGY (气)</span>
+                    <div class="qi-bar-wrapper">
+                        <div id="ai-qi-fill" class="qi-fill" style="width: 0%; background: var(--accent-bleed);"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Player Panel -->
+            <div class="side-panel player-panel">
+                <div id="game-container" class="view-box camera-view">
+                    <div class="camera-overlay"></div>
+                    <svg id="hand-guide" class="hand-guide" viewBox="0 0 100 100" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M30 80 C 30 80, 20 70, 20 50 C 20 30, 30 20, 40 20 C 50 20, 55 35, 55 50 M55 30 L55 10 M65 35 L75 15 M75 50 L95 40" stroke-linecap="round" />
+                    </svg>
+                </div>
+                <div class="qi-meter">
+                    <span class="qi-label">PLAYER_ENERGY (气)</span>
+                    <div class="qi-bar-wrapper">
+                        <div id="player-qi-fill" class="qi-fill" style="width: 0%;"></div>
+                    </div>
+                </div>
+            </div>
+        </section>
+    </main>
+
     <script src="sketch.js"></script>
 </body>
 
