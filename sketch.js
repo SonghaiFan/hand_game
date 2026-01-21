@@ -13,7 +13,7 @@ const STATE_RESULT = "RESULT";
 
 let gameState = STATE_WAITING;
 let lastBeatTime = 0;
-let beatInterval = 800; // ms per beat
+let beatInterval = 400; // ms per beat
 let beatCount = 0;
 
 let playerQi = 0;
@@ -23,11 +23,7 @@ let aiAction = "NONE";
 let resultMessage = "";
 let winner = ""; // "PLAYER", "AI", or "BOTH"
 
-// Clap detection / Adaptive Rhythm
-let clapsFound = 0;
-let t1 = 0;
-let t2 = 0;
-let adaptiveInterval = 800;
+// Clap detection
 let clapThreshold = 100;
 let canClapAgain = true; // prevent multiple triggers per clap
 
@@ -82,9 +78,9 @@ function startGame() {
   playerQi = 0;
   aiQi = 0;
   gameState = STATE_WAITING;
-  clapsFound = 0;
+  gameState = STATE_WAITING;
   overlay.classList.add("hidden");
-  resultMsg.innerText = "等待拍手开始...";
+  resultMsg.innerText = "拍手开始回合 / Clap to Start Round";
   updateUIDOM();
 }
 
@@ -138,9 +134,16 @@ function updateAIActionDOM(action) {
 function updateGame() {
   if (!gameStarted || gameOver) return;
 
-  if (gameState === STATE_BEAT2) {
-    let currentTime = millis();
-    if (currentTime - t2 > adaptiveInterval) {
+  let currentTime = millis();
+
+  if (gameState === STATE_BEAT1) {
+    if (currentTime - lastBeatTime > beatInterval) {
+      gameState = STATE_BEAT2;
+      lastBeatTime = currentTime;
+      playBeatSound(300, 0.1, "triangle");
+    }
+  } else if (gameState === STATE_BEAT2) {
+    if (currentTime - lastBeatTime > beatInterval) {
       triggerAction();
     }
   }
@@ -155,11 +158,9 @@ function triggerAction() {
 
   setTimeout(() => {
     if (!gameOver) {
-      gameState = STATE_WAITING;
-      clapsFound = 0;
-      canClapAgain = true;
+      startRound();
     }
-  }, adaptiveInterval * 1.5);
+  }, beatInterval * 2);
 }
 
 function checkPlayerClap() {
@@ -188,19 +189,15 @@ function clapped() {
     return;
   }
 
-  clapsFound++;
-
-  if (clapsFound === 1) {
-    t1 = millis();
-    gameState = STATE_BEAT1;
-    playBeatSound(300, 0.1, "triangle");
-  } else if (clapsFound === 2) {
-    t2 = millis();
-    adaptiveInterval = t2 - t1;
-    adaptiveInterval = constrain(adaptiveInterval, 400, 1500);
-    gameState = STATE_BEAT2;
-    playBeatSound(300, 0.1, "triangle");
+  if (gameState === STATE_WAITING) {
+    startRound();
   }
+}
+
+function startRound() {
+  gameState = STATE_BEAT1;
+  lastBeatTime = millis();
+  playBeatSound(300, 0.1, "triangle");
 }
 
 function playBeatSound(freq, duration, type) {
@@ -241,15 +238,26 @@ function playClapSound() {
 }
 
 function detectPlayerAction() {
+  // 1. Safety Fallback: No hands visible -> assume Defense (blocking/hiding)
   if (hands.length === 0) return "DEFENSE";
 
+  // 2. Classify each hand
   let handStates = hands.map((h) => getHandState(h));
 
+  // 3. Priority Hierarchy
+  // Rule A: ONE Gun is enough to Attack.
   if (handStates.includes("GUN")) return "ATTACK";
-  if (hands.length === 2 && handStates.every((s) => s === "FIST")) return "LUCK";
-  if (hands.length === 2 && handStates.every((s) => s === "OPEN")) return "DEFENSE";
 
-  return "NONE";
+  // Rule B: Fists indicate Charging (Luck). 
+  // strict-ish: need more Fists than Opens (e.g. 2 Fists, or 1 Fist if 1 hand).
+  // If 1 Fist + 1 Open, treating as Defense is safer for the player.
+  let fistCount = handStates.filter(s => s === "FIST").length;
+  let openCount = handStates.filter(s => s === "OPEN").length;
+
+  if (fistCount > openCount) return "LUCK";
+
+  // Rule C: Default to Defense (Open hands, mixed signals, or protective gestures)
+  return "DEFENSE";
 }
 
 function getHandState(hand) {
@@ -265,24 +273,55 @@ function getHandState(hand) {
   let ringExt = isExtended(16, 14);
   let pinkyExt = isExtended(20, 18);
 
-  if (indexExt && !middleExt && !ringExt && !pinkyExt) return "GUN";
-  if (!indexExt && !middleExt && !ringExt && !pinkyExt) return "FIST";
-  if (indexExt && middleExt && ringExt && pinkyExt) return "OPEN";
+  // Count extended non-thumb fingers
+  let extCount = (indexExt ? 1 : 0) + (middleExt ? 1 : 0) + (ringExt ? 1 : 0) + (pinkyExt ? 1 : 0);
 
-  return "UNKNOWN";
+  // Fuzzy Classification
+  
+  // 1. GUN: Index must be extended. Others mostly closed.
+  if (indexExt) {
+    if (extCount <= 2) return "GUN"; // Allows index + 1 other (sloppy gun)
+    return "OPEN"; // Index + 2 others -> too many for gun, probably open
+  }
+
+  // 2. FIST: Index closed. Total extended low.
+  if (extCount <= 1) return "FIST"; // Allows 1 stray finger (non-index)
+
+  // 3. OPEN: Everything else.
+  return "OPEN";
 }
 
 function decideAIAction() {
-  if (aiQi >= 0.5) {
-    let attackChance = 0.3;
-    if (playerQi < 0.5) attackChance = 0.6;
-    let r = random();
-    if (r < attackChance) return "ATTACK";
-    if (r < attackChance + 0.25) return "DEFENSE";
-    return "LUCK";
+  // Case 1: Both Low Energy -> Rush to charge (Safe)
+  if (aiQi < 0.5 && playerQi < 0.5) {
+    return "LUCK"; 
   }
-  if (playerQi >= 0.5) return random() < 0.4 ? "LUCK" : "DEFENSE";
-  return random() < 0.8 ? "LUCK" : "DEFENSE";
+
+  // Case 2: AI Advantage (Predator) -> Player is scared
+  if (aiQi >= 0.5 && playerQi < 0.5) {
+    // User request: "As long as can shoot, don't rush Luck"
+    // Press the advantage effectively.
+    // 80% Attack (Suppress), 20% Luck (Greed only occasionally)
+    return random() < 0.8 ? "ATTACK" : "LUCK";
+  }
+
+  // Case 3: AI Disadvantage (Survivor) -> Player is threat
+  if (aiQi < 0.5 && playerQi >= 0.5) {
+    // High risk. Must defend.
+    return random() < 0.9 ? "DEFENSE" : "LUCK"; 
+  }
+
+  // Case 4: High Stakes Standoff (Both Armed)
+  if (aiQi >= 0.5 && playerQi >= 0.5) {
+    // User request: Don't rush Luck.
+    // High aggression and safety. Very low greed.
+    let r = random();
+    if (r < 0.50) return "ATTACK";  // 50% Aggression
+    if (r < 0.95) return "DEFENSE"; // 45% Safety
+    return "LUCK";                  // 5% Risky Greed
+  }
+
+  return "LUCK";
 }
 
 function processResult() {
@@ -299,12 +338,14 @@ function processResult() {
   } else {
     if (playerAttacking) {
       playerQi -= 0.5;
-      if (aiAction === "LUCK") aiHit = true;
+      // Hit anything that isn't DEFENSE (since we know they aren't counter-attacking here)
+      if (aiAction !== "DEFENSE") aiHit = true;
       playAttackSound();
     }
     if (aiAttacking) {
       aiQi -= 0.5;
-      if (playerAction === "LUCK") playerHit = true;
+      // Hit anything that isn't DEFENSE
+      if (playerAction !== "DEFENSE") playerHit = true;
       playAttackSound();
     }
   }
@@ -357,6 +398,8 @@ function updateUIDOM() {
     resultMsg.innerText = resultMessage;
     resultMsg.style.color = "var(--accent-bleed)";
     updateAIActionDOM(aiAction);
+  } else {
+    updateAIActionDOM("NONE");
   }
 
   if (gameOver) {
