@@ -229,8 +229,8 @@ function checkSpeedControlGesture() {
       let middleBase = kp[9];
       let middleExt = dist(wrist.x, wrist.y, middleTip.x, middleTip.y) > dist(wrist.x, wrist.y, middleBase.x, middleBase.y) * 1.5;
 
-      // Thresholds: Pinch < 10 (Stricter), Middle Extended
-      if (pinchDist < 10 && middleExt) {
+      // Thresholds: Pinch < 15 (Stricter), Middle Extended
+      if (pinchDist < 15 && middleExt) {
         controllingHand = hand;
         break; 
       }

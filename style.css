@@ -175,14 +175,18 @@ body {
 }
 
 .legend-icon {
-    width: 30px;
-    height: 30px;
-    border: 1px solid var(--ink);
+    width: 70px; /* Widened to fit 2 emojis */
+    height: 45px;
+    border: 2px solid var(--ink);
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 1.2rem;
+    font-size: 1.6rem; 
+    background: white;
+    white-space: nowrap; /* Prevent wrapping */
+    overflow: hidden;
 }
+
 
 .legend-text {
     font-size: 0.8rem;
