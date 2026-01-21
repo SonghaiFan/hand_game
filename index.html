@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>拍手游戏 - Hand Clap Game</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.0/p5.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.0/addons/p5.sound.min.js"></script>
+    <script src="https://unpkg.com/ml5@1/dist/ml5.min.js"></script>
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+    <div id="game-container"></div>
+    <div id="instructions">
+        <h2>拍手游戏 (Hand Clap Game)</h2>
+        <p>跟着节奏: <b>咚 (拍) - 咚 (拍) - 哒 (决策)</b></p>
+        <ul>
+            <li><b>运气 (Luck):</b> 双手握拳分开。增加 1 个气。</li>
+            <li><b>攻击 (Attack):</b> 做出枪型手势。消耗 0.5 个气。如果在对方运气时攻击，则获胜。</li>
+            <li><b>防御 (Defense):</b> 双手伸开并交叉在胸前。抵挡攻击，不消耗气。</li>
+        </ul>
+        <p>若无人获胜，则循环继续。<b>请点击屏幕开始并将双手置于摄像头可见范围内。</b></p>
+    </div>
+    <script src="sketch.js"></script>
+</body>
+
+</html>
