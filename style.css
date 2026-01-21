@@ -55,8 +55,10 @@ body {
     width: 95vw;
     height: 90vh;
     max-width: 1400px;
+    max-height: 900px;
     display: grid;
     grid-template-columns: 1.2fr 1fr;
+    grid-template-rows: minmax(0, 1fr);
     gap: 30px;
     filter: url(#ink-bleed);
     position: relative;
@@ -73,6 +75,7 @@ body {
     padding: 30px;
     background: rgba(255, 255, 255, 0.5);
     box-shadow: 15px 15px 0px rgba(0, 0, 0, 0.05);
+    min-height: 0;
 }
 
 .header {
@@ -189,6 +192,7 @@ body {
     display: flex;
     flex-direction: column;
     gap: 20px;
+    height: 100%;
 }
 
 .side-panel {
@@ -196,6 +200,7 @@ body {
     display: flex;
     flex-direction: column;
     gap: 10px;
+    min-height: 0;
 }
 
 .view-box {
@@ -207,6 +212,7 @@ body {
     display: flex;
     align-items: center;
     justify-content: center;
+    min-height: 0;
 }
 
 .camera-view {
@@ -218,19 +224,11 @@ body {
     height: auto !important;
 }
 
-.ai-avatar-container {
-    width: 100%;
-    height: 100%;
-    position: relative;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    overflow: hidden;
-}
-
-.ai-avatar-container canvas {
+.ai-avatar-image {
     max-width: 100%;
     max-height: 100%;
+    object-fit: contain;
+    filter: url(#ink-bleed);
 }
 
 .qi-meter {

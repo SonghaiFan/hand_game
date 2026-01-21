@@ -32,7 +32,7 @@ let clapThreshold = 100;
 let canClapAgain = true; // prevent multiple triggers per clap
 
 // DOM Elements
-let playerQiFill, aiQiFill, resultMsg, beats, overlay, overlayTitle, overlayMsg, startBtn, aiActionIcon, startState;
+let playerQiFill, aiQiFill, resultMsg, beats, overlay, overlayTitle, overlayMsg, startBtn, startState, aiImg;
 let modelReady = false;
 
 function preload() {
@@ -65,6 +65,7 @@ function setup() {
   overlayMsg = document.getElementById("overlay-msg");
   startBtn = document.getElementById("start-btn");
   startState = document.getElementById("start-state");
+  aiImg = document.getElementById("ai-img");
 
   startBtn.addEventListener("click", () => {
     userStartAudio();
@@ -126,7 +127,12 @@ function draw() {
 }
 
 function updateAIActionDOM(action) {
-  // No longer using emojis, just managing state for the AI avatar
+  if (!aiImg) return;
+  
+  if (action === "LUCK") aiImg.src = "image/LUCK.png";
+  else if (action === "ATTACK") aiImg.src = "image/ATTACK.png";
+  else if (action === "DEFENSE") aiImg.src = "image/DEFENSE.png";
+  else aiImg.src = "image/NORMAL.png";
 }
 
 function updateGame() {
@@ -152,18 +158,8 @@ function triggerAction() {
       gameState = STATE_WAITING;
       clapsFound = 0;
       canClapAgain = true;
-      playReadySound(); // Sound to indicate ready for next clap
     }
   }, adaptiveInterval * 1.5);
-}
-
-function playReadySound() {
-  let osc = new p5.Oscillator("sine");
-  osc.freq(800);
-  osc.amp(0.2, 0.05);
-  osc.start();
-  osc.amp(0, 0.1);
-  setTimeout(() => osc.stop(), 150);
 }
 
 function checkPlayerClap() {
@@ -197,13 +193,13 @@ function clapped() {
   if (clapsFound === 1) {
     t1 = millis();
     gameState = STATE_BEAT1;
-    playBeatSound(200, 0.15, "triangle"); // Lower "Dong"
+    playBeatSound(300, 0.1, "triangle");
   } else if (clapsFound === 2) {
     t2 = millis();
     adaptiveInterval = t2 - t1;
     adaptiveInterval = constrain(adaptiveInterval, 400, 1500);
     gameState = STATE_BEAT2;
-    playBeatSound(200, 0.15, "triangle"); // Lower "Dong"
+    playBeatSound(300, 0.1, "triangle");
   }
 }
 
@@ -235,51 +231,13 @@ function playAttackSound() {
 }
 
 function playClapSound() {
-  // Sharper pink noise
-  let noise = new p5.Noise("pink");
+  let noise = new p5.Noise("brown");
   let env = new p5.Envelope();
-  env.setADSR(0.001, 0.03, 0.03, 0.03);
-  env.setRange(0.6, 0);
+  env.setADSR(0.001, 0.05, 0.05, 0.05);
+  env.setRange(0.4, 0);
   noise.start();
   env.play(noise);
-  setTimeout(() => noise.stop(), 100);
-
-  // Harmonic physical thump
-  let osc = new p5.Oscillator("sine");
-  osc.freq(150);
-  osc.amp(0.4, 0.01);
-  osc.start();
-  osc.amp(0, 0.1);
-  setTimeout(() => osc.stop(), 120);
-}
-
-function playHitSound() {
-  let noise = new p5.Noise("white");
-  let env = new p5.Envelope();
-  env.setADSR(0.001, 0.2, 0.1, 0.1);
-  env.setRange(0.8, 0);
-  noise.start();
-  env.play(noise);
-  setTimeout(() => noise.stop(), 400);
-
-  let osc = new p5.Oscillator("sawtooth");
-  osc.freq(80);
-  osc.amp(0.6, 0.05);
-  osc.start();
-  osc.freq(40, 0.3);
-  osc.amp(0, 0.3);
-  setTimeout(() => osc.stop(), 400);
-}
-
-function playWinSound() {
-  let osc = new p5.Oscillator("triangle");
-  osc.freq(400);
-  osc.amp(0.3, 0.05);
-  osc.start();
-  osc.freq(600, 0.1);
-  osc.freq(800, 0.2);
-  osc.amp(0, 0.3);
-  setTimeout(() => osc.stop(), 400);
+  setTimeout(() => noise.stop(), 150);
 }
 
 function detectPlayerAction() {
@@ -358,17 +316,14 @@ function processResult() {
     resultMessage = "同归于尽！双方在集气时被击中";
     winner = "BOTH";
     gameOver = true;
-    playHitSound();
   } else if (playerHit) {
     resultMessage = "你输了！集气时被击中";
     winner = "AI";
     gameOver = true;
-    playHitSound();
   } else if (aiHit) {
     resultMessage = "你赢了！AI 集气时被击中";
     winner = "PLAYER";
     gameOver = true;
-    playWinSound();
   } else {
     resultMessage = `${translateAction(playerAction)} vs ${translateAction(aiAction)}`;
   }
@@ -424,156 +379,3 @@ document.addEventListener('mousemove', (e) => {
     if (stage) stage.style.transform = `rotateY(${x}deg) rotateX(${-y}deg)`;
 });
 
-// AIAvatar Instance Mode for a sketchy, hand-drawn character
-const aiAvatarSketch = (p) => {
-    let w = 300;
-    let h = 300;
-    
-    p.setup = () => {
-        let canvas = p.createCanvas(w, h);
-        canvas.parent("ai-avatar-container");
-    };
-
-    p.draw = () => {
-        p.clear();
-        p.stroke(0);
-        p.noFill();
-        
-        if (!gameStarted) return;
-
-        // Smooth breathing
-        let breath = p.sin(p.frameCount * 0.1) * 3;
-        
-        p.push();
-        p.translate(p.width/2, p.height/2 + 40);
-        
-        // Body
-        p.strokeWeight(3);
-        sketchyArc(p, 0, 40, 140, 100, p.PI, p.TWO_PI);
-        
-        // Head - subtle jump on action
-        let headY = -70 + breath;
-        if (gameState === STATE_ACTION) headY -= 15;
-        
-        p.strokeWeight(2.5);
-        sketchyEllipse(p, 0, headY, 60, 75);
-        
-        // Face
-        p.strokeWeight(2);
-        if (gameState === STATE_RESULT && winner === "AI") {
-            sketchyArc(p, -12, headY - 5, 12, 10, p.PI, p.TWO_PI);
-            sketchyArc(p, 12, headY - 5, 12, 10, p.PI, p.TWO_PI);
-            sketchyArc(p, 0, headY + 15, 20, 15, 0, p.PI);
-        } else if (gameState === STATE_RESULT && winner === "PLAYER") {
-            sketchyLine(p, -15, headY - 10, -5, headY);
-            sketchyLine(p, 15, headY - 10, 5, headY);
-            sketchyArc(p, 0, headY + 25, 20, 10, p.PI, p.TWO_PI);
-        } else {
-            sketchyEllipse(p, -12, headY, 6, 6);
-            sketchyEllipse(p, 12, headY, 6, 6);
-            sketchyLine(p, -10, headY + 20, 10, headY + 20);
-        }
-
-        // Action-specific arms/poses
-        p.strokeWeight(3);
-        if (aiAction === "LUCK") {
-            // "Luck" - Two fists raised
-            drawSketchyHand(p, -50, headY + 20, "FIST", -0.5);
-            drawSketchyHand(p, 50, headY + 20, "FIST", 0.5);
-        } else if (aiAction === "ATTACK") {
-            // "Attack" - Gun hand pointing forward
-            drawSketchyHand(p, 40, headY + 50, "GUN", 0);
-        } else if (aiAction === "DEFENSE") {
-            // "Defense" - Arms crossed in front of chest
-            p.push();
-            p.translate(0, headY + 70);
-            sketchyLine(p, -40, -20, 40, 20);
-            sketchyLine(p, 40, -20, -40, 20);
-            drawSketchyHand(p, -30, -15, "PALM", 0.8);
-            drawSketchyHand(p, 30, -15, "PALM", -0.8);
-            p.pop();
-        } else {
-            // IDLE - hands relaxed at sides
-            drawSketchyHand(p, -60, headY + 80, "PALM", 0.2);
-            drawSketchyHand(p, 60, headY + 80, "PALM", -0.2);
-        }
-        
-        p.pop();
-    };
-
-    function drawSketchyHand(p, x, y, type, rotation) {
-        p.push();
-        p.translate(x, y);
-        p.rotate(rotation);
-        p.strokeWeight(2);
-        
-        if (type === "FIST") {
-            sketchyEllipse(p, 0, 0, 25, 25);
-            // finger lines
-            for (let i = -1; i <= 1; i++) {
-                sketchyLine(p, i * 4, -8, i * 4, 4);
-            }
-        } else if (type === "GUN") {
-            // Palm/Base
-            sketchyEllipse(p, -10, 0, 20, 25);
-            // Pointing finger
-            sketchyLine(p, 0, -5, 30, -5);
-            sketchyLine(p, 0, 0, 25, 0);
-            // Thumb
-            sketchyLine(p, -10, -10, -10, -20);
-        } else if (type === "PALM") {
-            sketchyEllipse(p, 0, 0, 22, 28);
-            // fingers
-            for (let i = -2; i <= 2; i++) {
-                sketchyLine(p, i * 3, -12, i * 4, -22);
-            }
-        }
-        p.pop();
-    }
-
-    function sketchyLine(p, x1, y1, x2, y2) {
-        let steps = 6;
-        p.beginShape();
-        for(let i=0; i<=steps; i++){
-            let x = p.lerp(x1, x2, i/steps);
-            let y = p.lerp(y1, y2, i/steps);
-            let n = p.noise(x * 0.1, y * 0.1, p.frameCount * 0.05);
-            x += (n - 0.5) * 6;
-            y += (n - 0.5) * 6;
-            p.vertex(x, y);
-        }
-        p.endShape();
-    }
-
-    function sketchyEllipse(p, x, y, w, h) {
-        let steps = 12;
-        p.beginShape();
-        for(let i=0; i<=steps; i++){
-            let angle = p.map(i, 0, steps, 0, p.TWO_PI);
-            let px = x + p.cos(angle) * w/2;
-            let py = y + p.sin(angle) * h/2;
-            let n = p.noise(px * 0.1, py * 0.1, p.frameCount * 0.05);
-            px += (n - 0.5) * 6;
-            py += (n - 0.5) * 6;
-            p.vertex(px, py);
-        }
-        p.endShape(p.CLOSE);
-    }
-
-    function sketchyArc(p, x, y, w, h, start, end) {
-        let steps = 10;
-        p.beginShape();
-        for(let i=0; i<=steps; i++){
-            let angle = p.map(i, 0, steps, start, end);
-            let px = x + p.cos(angle) * w/2;
-            let py = y + p.sin(angle) * h/2;
-            let n = p.noise(px * 0.1, py * 0.1, p.frameCount * 0.05);
-            px += (n - 0.5) * 6;
-            py += (n - 0.5) * 6;
-            p.vertex(px, py);
-        }
-        p.endShape();
-    }
-};
-
-new p5(aiAvatarSketch);
