@@ -157,6 +157,12 @@ body {
     margin-top: auto;
     padding-top: 20px;
     border-top: 2px solid var(--ink);
+    display: grid;
+    grid-template-columns: 1fr 1.2fr 1.2fr; /* Luck, Attack, Defense */
+    gap: 10px;
+}
+
+.legend-col {
     display: flex;
     flex-direction: column;
     gap: 10px;

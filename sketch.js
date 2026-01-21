@@ -23,16 +23,43 @@ let aiAction = "NONE";
 let resultMessage = "";
 let winner = ""; // "PLAYER", "AI", or "BOTH"
 
+// Move Dictionary (JSON Configuration)
+const MOVES = {
+  "LUCK":      { name: "集气", emoji: "✊", cost: 0.0, desc: "+1气" },
+  "ATTACK_1":  { name: "单枪", emoji: "👉", cost: 0.5, desc: "攻击" },
+  "ATTACK_2":  { name: "双枪", emoji: "🔫", cost: 1.0, desc: "破小防" },
+  "DEFENSE_1": { name: "小防", emoji: "🖐️", cost: 0.0, desc: "防单枪" },
+  "DEFENSE_2": { name: "大防", emoji: "🙌", cost: 0.5, desc: "全防" },
+  "NONE":      { name: "无效", emoji: "😶", cost: 0.0, desc: "" }
+};
+
 // Clap detection
 let clapThreshold = 100;
 let canClapAgain = true; // prevent multiple triggers per clap
 
 // DOM Elements
 let playerQiFill, aiQiFill, resultMsg, beats, overlay, overlayTitle, overlayMsg, startBtn, startState, aiImg;
+let speedSlider, speedValDisplay;
 let modelReady = false;
+
+// Gesture Control State
+let isDraggingSpeed = false;
+let dragStartX = 0;
+let dragStartSpeed = 0;
+
+// Sound Assets
+let sndClap, sndLuck, sndAttack0, sndAttack1, sndAttack2;
 
 function preload() {
   handPose = ml5.handPose({ maxHands: 2, flipped: false });
+  
+  // Load Sounds
+  soundFormats('mp3');
+  sndClap = loadSound('sound/CLAP');
+  sndLuck = loadSound('sound/LUCK');
+  sndAttack0 = loadSound('sound/ATTACK_0');
+  sndAttack1 = loadSound('sound/ATTACK_1');
+  sndAttack2 = loadSound('sound/ATTACK_2');
 }
 
 function setup() {
@@ -61,7 +88,21 @@ function setup() {
   overlayMsg = document.getElementById("overlay-msg");
   startBtn = document.getElementById("start-btn");
   startState = document.getElementById("start-state");
+  // AI Display
   aiImg = document.getElementById("ai-img");
+  
+  // Speed Slider
+  
+  // Speed Slider
+  speedSlider = document.getElementById("speed-slider");
+  speedValDisplay = document.getElementById("speed-val");
+  
+  if (speedSlider) {
+    speedSlider.addEventListener("input", (e) => {
+      beatInterval = parseInt(e.target.value);
+      if (speedValDisplay) speedValDisplay.innerText = beatInterval;
+    });
+  }
 
   startBtn.addEventListener("click", () => {
     userStartAudio();
@@ -70,6 +111,8 @@ function setup() {
 
   textAlign(CENTER, CENTER);
   textSize(32);
+  
+  setupLegend();
 }
 
 function startGame() {
@@ -119,16 +162,152 @@ function draw() {
   pop();
 
   updateGame();
+  checkSpeedControlGesture();
   updateUIDOM();
+}
+
+function setupLegend() {
+  const container = document.getElementById("legend-container");
+  if (!container) return;
+  container.innerHTML = "";
+
+  // Grouping into 3 columns
+  const groups = [
+    ["LUCK"],
+    ["ATTACK_1", "ATTACK_2"],
+    ["DEFENSE_1", "DEFENSE_2"]
+  ];
+
+  groups.forEach(group => {
+    let col = document.createElement("div");
+    col.className = "legend-col";
+
+    group.forEach(key => {
+      let move = MOVES[key];
+      let item = document.createElement("div");
+      item.className = "legend-item";
+      
+      let costText = move.cost > 0 ? `-${move.cost} 气` : (key === "LUCK" ? "+1 气" : "免费");
+      
+      let extra = "";
+      if(key === "ATTACK_2") extra = " | 破小防"; // Shortened for layout
+      if(key === "DEFENSE_2") extra = " | 全防";
+      
+      item.innerHTML = `
+        <div class="legend-icon">${move.emoji}</div>
+        <div class="legend-text"><b>${move.name}</b><br>${costText}${extra}</div>
+      `;
+      col.appendChild(item);
+    });
+    
+    container.appendChild(col);
+  });
+}
+
+function checkSpeedControlGesture() {
+  // User request: "Game process" means active rhythm.
+  // Allow adjustment if:
+  // 1. Game hasn't started yet.
+  // 2. Game is Over.
+  // 3. Game is waiting for the first clap (STATE_WAITING) -> Metronome not clicking.
+  
+  // Block ONLY if: Game Started AND Not Over AND Not Waiting (i.e. currently playing bits).
+  if (gameStarted && !gameOver && gameState !== STATE_WAITING) return;
+
+  // Logic: "OK" Pinch to grab the slider, then Move to adjust.
+  // Dragging logic: Record start X when pinch begins. Calculate delta.
+  
+  let controllingHand = null;
+
+  // Find a hand performing the gesture
+  if (hands.length > 0) {
+    for (let hand of hands) {
+      let kp = hand.keypoints;
+      let pinchDist = dist(kp[4].x, kp[4].y, kp[8].x, kp[8].y);
+      let wrist = kp[0];
+      let middleTip = kp[12];
+      let middleBase = kp[9];
+      let middleExt = dist(wrist.x, wrist.y, middleTip.x, middleTip.y) > dist(wrist.x, wrist.y, middleBase.x, middleBase.y) * 1.5;
+
+      // Thresholds: Pinch < 10 (Stricter), Middle Extended
+      if (pinchDist < 10 && middleExt) {
+        controllingHand = hand;
+        break; 
+      }
+    }
+  }
+
+  if (controllingHand) {
+    let kp = controllingHand.keypoints;
+    let currentX = kp[8].x;
+
+    if (!isDraggingSpeed) {
+      // Start Dragging
+      isDraggingSpeed = true;
+      dragStartX = currentX;
+      dragStartSpeed = beatInterval;
+    } else {
+      // Continue Dragging
+      // Map Logic: 
+      // X decreases as hand moves Right (screen).  (640 -> 0)
+      // We want Right Move -> Slider Value Increase (Slower)
+      // Delta X (Start - Current) -> Positive when moving Right.
+      
+      let deltaX = dragStartX - currentX; // Moving Right = Positive
+      // Sensitivity: 1px = 2ms?
+      let msChange = deltaX * 2.5; 
+      
+      let newSpeed = dragStartSpeed + msChange;
+      newSpeed = constrain(newSpeed, 300, 1200);
+      newSpeed = Math.round(newSpeed / 50) * 50; // Snap
+
+      beatInterval = newSpeed;
+
+      // Update DOM
+      if (speedSlider) speedSlider.value = beatInterval;
+      if (speedValDisplay) speedValDisplay.innerText = beatInterval;
+    }
+
+    // Visual Feedback
+    push();
+    translate(width, 0);
+    scale(-1, 1);
+    
+    // Draw anchor line
+    stroke(255, 100);
+    strokeWeight(1);
+    line(dragStartX, kp[8].y, currentX, kp[8].y);
+
+    // Draw active circle
+    noFill();
+    stroke(0, 255, 255);
+    strokeWeight(3);
+    circle(currentX, kp[8].y, 50);
+    
+    // Undo mirror for text
+    push();
+    translate(currentX, kp[8].y);
+    scale(-1, 1); 
+    fill(0, 255, 255);
+    noStroke();
+    textSize(20);
+    textAlign(CENTER);
+    text(`${beatInterval}ms`, 0, -40);
+    pop();
+    
+    pop();
+
+  } else {
+    // No hand pinching
+    isDraggingSpeed = false;
+  }
 }
 
 function updateAIActionDOM(action) {
   if (!aiImg) return;
-  
-  if (action === "LUCK") aiImg.src = "image/LUCK.png";
-  else if (action === "ATTACK") aiImg.src = "image/ATTACK.png";
-  else if (action === "DEFENSE") aiImg.src = "image/DEFENSE.png";
-  else aiImg.src = "image/NORMAL.png";
+  // Use Emoji from JSON
+  let move = MOVES[action] || MOVES["NONE"];
+  aiImg.innerText = move.emoji;
 }
 
 function updateGame() {
@@ -201,63 +380,81 @@ function startRound() {
 }
 
 function playBeatSound(freq, duration, type) {
-  let osc = new p5.Oscillator(type);
-  osc.freq(freq);
-  osc.amp(0.3, 0.05);
-  osc.start();
-  osc.amp(0, duration);
-  setTimeout(() => osc.stop(), duration * 1000 + 100);
-}
+  // Simulate Crisper Clap/Snap Sounds
+  
+  let noiseType = "white";
+  let attackTime = 0.001; // Instant attack for crispness
+  let decayTime = 0.1;
+  let amplitude = 0.5;
+  let filterFreq = 1000; // High pass to remove mud
 
-function playAttackSound() {
-  let noise = new p5.Noise("white");
+  // Differentiate "Dong" (Beat) vs "Da" (Action)
+  if (freq > 400) { 
+    // Action (Sharp High Snap)
+    decayTime = 0.15;
+    amplitude = 0.7;
+    filterFreq = 1200; // Higher pitch center
+  } else {
+    // Beat (Short Light Tap)
+    // Using white noise instead of pink for clarity
+    decayTime = 0.05; 
+    amplitude = 0.3;
+    filterFreq = 800;
+  }
+
+  let noise = new p5.Noise(noiseType);
   let env = new p5.Envelope();
-  env.setADSR(0.001, 0.1, 0.1, 0.1);
-  env.setRange(0.8, 0);
+  let filter = new p5.HighPass();
+
+  // Route: Noise -> Filter -> Output
+  noise.disconnect();
+  noise.connect(filter);
+  filter.freq(filterFreq);
+
+  env.setADSR(attackTime, decayTime, 0.0, 0.01); 
+  env.setRange(amplitude, 0);
+  
   noise.start();
   env.play(noise);
-  setTimeout(() => noise.stop(), 300);
-
-  let osc = new p5.Oscillator("sine");
-  osc.freq(100);
-  osc.amp(0.5, 0.05);
-  osc.start();
-  osc.freq(40, 0.2);
-  osc.amp(0, 0.2);
-  setTimeout(() => osc.stop(), 200);
+  
+  // Cleanup
+  setTimeout(() => {
+    noise.stop();
+    // filters don't always need explicit stop/dispose in simple simple p5 sketches but good usage ensures no buildup
+  }, decayTime * 1000 + 200);
 }
 
 function playClapSound() {
-  let noise = new p5.Noise("brown");
-  let env = new p5.Envelope();
-  env.setADSR(0.001, 0.05, 0.05, 0.05);
-  env.setRange(0.4, 0);
-  noise.start();
-  env.play(noise);
-  setTimeout(() => noise.stop(), 150);
+  if (sndClap && sndClap.isLoaded()) sndClap.play();
 }
 
 function detectPlayerAction() {
-  // 1. Safety Fallback: No hands visible -> assume Defense (blocking/hiding)
-  if (hands.length === 0) return "DEFENSE";
+  // 1. Safety Fallback
+  if (hands.length === 0) return "DEFENSE_1"; // Default to small defense (hiding)
 
-  // 2. Classify each hand
   let handStates = hands.map((h) => getHandState(h));
-
-  // 3. Priority Hierarchy
-  // Rule A: ONE Gun is enough to Attack.
-  if (handStates.includes("GUN")) return "ATTACK";
-
-  // Rule B: Fists indicate Charging (Luck). 
-  // strict-ish: need more Fists than Opens (e.g. 2 Fists, or 1 Fist if 1 hand).
-  // If 1 Fist + 1 Open, treating as Defense is safer for the player.
-  let fistCount = handStates.filter(s => s === "FIST").length;
+  let gunCount = handStates.filter(s => s === "GUN").length;
   let openCount = handStates.filter(s => s === "OPEN").length;
+  let fistCount = handStates.filter(s => s === "FIST").length;
 
+  // 2. Action Hierarchy
+  
+  // --- ATTACKS ---
+  // Double Gun
+  if (gunCount >= 2) return "ATTACK_2";
+  // Single Gun
+  if (gunCount === 1) return "ATTACK_1";
+
+  // --- LUCK / CHARGE ---
+  // Fists indicate Charging
   if (fistCount > openCount) return "LUCK";
 
-  // Rule C: Default to Defense (Open hands, mixed signals, or protective gestures)
-  return "DEFENSE";
+  // --- DEFENSE ---
+  // Double Defense (Two Hands Open)
+  if (openCount >= 2) return "DEFENSE_2";
+  
+  // Single/Default Defense
+  return "DEFENSE_1";
 }
 
 function getHandState(hand) {
@@ -292,93 +489,199 @@ function getHandState(hand) {
 }
 
 function decideAIAction() {
-  // Case 1: Both Low Energy -> Rush to charge (Safe)
-  if (aiQi < 0.5 && playerQi < 0.5) {
-    return "LUCK"; 
+  // AI Logic based on Resources and Threat
+
+  let canDoubleAttack = aiQi >= 1.0;
+  let canAttack = aiQi >= 0.5;
+  let canBigDefend = aiQi >= 0.5;
+  
+  let threatDouble = playerQi >= 1.0; // Player can kill through slight defense
+  let threatSingle = playerQi >= 0.5;
+
+  // Case 1: Desperate (AI has 0 Qi)
+  if (!canAttack) {
+    if (threatDouble) {
+      // Must pray or just die (cannot Big Defend). 
+      // D1 is free but dies to A2. 
+      // Just D1 and hope player doesn't A2.
+      return "DEFENSE_1"; 
+    }
+    if (threatSingle) {
+      return random() < 0.9 ? "DEFENSE_1" : "LUCK";
+    }
+    // Safe to Charge
+    return "LUCK";
   }
 
-  // Case 2: AI Advantage (Predator) -> Player is scared
-  if (aiQi >= 0.5 && playerQi < 0.5) {
-    // User request: "As long as can shoot, don't rush Luck"
-    // Press the advantage effectively.
-    // 80% Attack (Suppress), 20% Luck (Greed only occasionally)
-    return random() < 0.8 ? "ATTACK" : "LUCK";
+  // Case 2: AI has 0.5 Qi (Can A1 or D2)
+  if (aiQi === 0.5) {
+    if (threatDouble) {
+      // Must use D2 to survive A2. 
+      // 90% D2.
+      return random() < 0.9 ? "DEFENSE_2" : "ATTACK_1"; // Counter-attack gambit?
+    }
+    // Standard skirmish.
+    // D2 is waste vs A1. D1 is fine.
+    // Aggressive: A1.
+    return random() < 0.6 ? "ATTACK_1" : "LUCK"; // Pressure or Build
   }
 
-  // Case 3: AI Disadvantage (Survivor) -> Player is threat
-  if (aiQi < 0.5 && playerQi >= 0.5) {
-    // High risk. Must defend.
-    return random() < 0.9 ? "DEFENSE" : "LUCK"; 
+  // Case 3: AI has >= 1.0 Qi (Powerhouse)
+  if (aiQi >= 1.0) {
+    if (threatDouble) {
+      // Standoff.
+      // D2 is safe (-0.5).
+      // A2 is aggressive (-1.0).
+      // A1 is poke (-0.5).
+      let r = random();
+      if (r < 0.4) return "ATTACK_2"; // Go for kill
+      if (r < 0.8) return "DEFENSE_2"; // Safe
+      return "ATTACK_1"; // Bait
+    }
+    
+    // Player Weak. Crush them.
+    return random() < 0.7 ? "ATTACK_2" : "LUCK";
   }
 
-  // Case 4: High Stakes Standoff (Both Armed)
-  if (aiQi >= 0.5 && playerQi >= 0.5) {
-    // User request: Don't rush Luck.
-    // High aggression and safety. Very low greed.
-    let r = random();
-    if (r < 0.50) return "ATTACK";  // 50% Aggression
-    if (r < 0.95) return "DEFENSE"; // 45% Safety
-    return "LUCK";                  // 5% Risky Greed
-  }
-
-  return "LUCK";
+  return "DEFENSE_1";
 }
 
 function processResult() {
-  let playerHit = false;
-  let aiHit = false;
-  let playerAttacking = playerAction === "ATTACK" && playerQi >= 0.5;
-  let aiAttacking = aiAction === "ATTACK" && aiQi >= 0.5;
+  let pAct = playerAction;
+  let aAct = aiAction;
 
-  if (playerAttacking && aiAttacking) {
-    playerQi -= 0.5;
-    aiQi -= 0.5;
-    resultMessage = "双方对攻，子弹抵消！";
-    playAttackSound();
-  } else {
-    if (playerAttacking) {
-      playerQi -= 0.5;
-      // Hit anything that isn't DEFENSE (since we know they aren't counter-attacking here)
-      if (aiAction !== "DEFENSE") aiHit = true;
-      playAttackSound();
-    }
-    if (aiAttacking) {
-      aiQi -= 0.5;
-      // Hit anything that isn't DEFENSE
-      if (playerAction !== "DEFENSE") playerHit = true;
-      playAttackSound();
-    }
+  // --- VALIDATION & DOWNGRADING ---
+  
+  // Detect Empty Gun (Attack Intent but downgrade to NONE)
+  let playerMisfire = false;
+  
+  // Player Validation
+  if (pAct === "ATTACK_2" && playerQi < 1.0) {
+     pAct = playerQi >= 0.5 ? "ATTACK_1" : "NONE";
+     if (pAct === "NONE") playerMisfire = true; // Tried A2, got nothing
+  }
+  else if (pAct === "ATTACK_1" && playerQi < 0.5) {
+     pAct = "NONE";
+     playerMisfire = true;
+  }
+  else if (pAct === "DEFENSE_2" && playerQi < 0.5) pAct = "DEFENSE_1";
+
+  // AI Validation (Self-Correction)
+  if (aAct === "ATTACK_2" && aiQi < 1.0) aAct = aiQi >= 0.5 ? "ATTACK_1" : "NONE";
+  else if (aAct === "ATTACK_1" && aiQi < 0.5) aAct = "NONE";
+  else if (aAct === "DEFENSE_2" && aiQi < 0.5) aAct = "DEFENSE_1";
+
+  // --- PLAY SOUNDS ---
+  // Player Misfire (No Luck/Qi)
+  if (playerMisfire) {
+    if (sndAttack0) sndAttack0.play();
   }
 
-  if (playerAction === "LUCK") playerQi += 1;
-  if (aiAction === "LUCK") aiQi += 1;
+  // Active Sounds (Accumulate/Mix)
+  const playMoveSound = (move) => {
+    if (move === "ATTACK_1") { if (sndAttack1) sndAttack1.play(); }
+    else if (move === "ATTACK_2") { 
+      if (sndAttack1) sndAttack1.play(); 
+      if (sndAttack2) sndAttack2.play(); 
+    }
+    else if (move === "LUCK") { if (sndLuck) sndLuck.play(); }
+  };
 
+  if (!playerMisfire) playMoveSound(pAct);
+  playMoveSound(aAct);
+
+
+  // --- COSTS ---
+  // Deduct Energy FIRST
+  if (pAct === "ATTACK_1") playerQi -= 0.5;
+  if (pAct === "ATTACK_2") playerQi -= 1.0;
+  if (pAct === "DEFENSE_2") playerQi -= 0.5;
+
+  if (aAct === "ATTACK_1") aiQi -= 0.5;
+  if (aAct === "ATTACK_2") aiQi -= 1.0;
+  if (aAct === "DEFENSE_2") aiQi -= 0.5;
+
+
+  // --- COMBAT RESOLUTION ---
+  let playerHit = false;
+  let aiHit = false;
+  let playerDamage = 0; // 0, 1 (Hit)
+  let aiDamage = 0;
+
+  // Analyze Player's Attack Result
+  if (pAct.includes("ATTACK")) {
+    
+    // What stops this attack?
+    let blocked = false;
+    let equalized = false;
+
+    if (pAct === "ATTACK_1") {
+      // Stopped by any Defense or any Attack
+      if (aAct.includes("DEFENSE")) blocked = true;
+      if (aAct.includes("ATTACK")) equalized = true;
+    } 
+    else if (pAct === "ATTACK_2") {
+      // Stopped ONLY by D2 or A2
+      if (aAct === "DEFENSE_2") blocked = true;
+      if (aAct === "ATTACK_2") equalized = true;
+      // D1 fails! A1 fails (overpowered)!
+    }
+
+    if (!blocked && !equalized) aiHit = true;
+  }
+
+  // Analyze AI's Attack Result
+  if (aAct.includes("ATTACK")) {
+    
+    let blocked = false;
+    let equalized = false;
+
+    if (aAct === "ATTACK_1") {
+      if (pAct.includes("DEFENSE")) blocked = true;
+      if (pAct.includes("ATTACK")) equalized = true;
+    }
+    else if (aAct === "ATTACK_2") {
+      if (pAct === "DEFENSE_2") blocked = true;
+      if (pAct === "ATTACK_2") equalized = true;
+    }
+
+    if (!blocked && !equalized) playerHit = true;
+  }
+
+  // --- EARN QI ---
+  if (pAct === "LUCK") playerQi += 1;
+  if (aAct === "LUCK") aiQi += 1;
+
+
+  // --- OUTCOME MESSAGE ---
   if (playerHit && aiHit) {
-    resultMessage = "同归于尽！双方在集气时被击中";
+    resultMessage = "双方同时中弹！(Double Kill)";
     winner = "BOTH";
     gameOver = true;
   } else if (playerHit) {
-    resultMessage = "你输了！集气时被击中";
+    resultMessage = "你输了！(Hit by " + translateAction(aAct) + ")";
     winner = "AI";
     gameOver = true;
   } else if (aiHit) {
-    resultMessage = "你赢了！AI 集气时被击中";
+    resultMessage = "你赢了！(Hit AI)";
     winner = "PLAYER";
     gameOver = true;
   } else {
-    resultMessage = `${translateAction(playerAction)} vs ${translateAction(aiAction)}`;
+    // Determine feedback string
+    resultMessage = `${translateAction(pAct)} vs ${translateAction(aAct)}`;
+    
+    // Add specific interaction notes?
+    if (pAct === "ATTACK_2" && aAct === "DEFENSE_1") resultMessage += " (破小防!)";
+    if (aAct === "ATTACK_2" && pAct === "DEFENSE_1") resultMessage += " (破小防!)";
+    if (pAct === "ATTACK_1" && aAct === "ATTACK_2") resultMessage += " (单枪被双枪压制!)";
+    if (aAct === "ATTACK_1" && pAct === "ATTACK_2") resultMessage += " (单枪被双枪压制!)";
   }
 }
 
 function translateAction(a) {
-  switch (a) {
-    case "LUCK": return "集气 (运气)";
-    case "ATTACK": return "攻击";
-    case "DEFENSE": return "防御";
-    case "NONE": return "准备 (无效)";
-    default: return a;
-  }
+  return MOVES[a] ? `${MOVES[a].name} ${MOVES[a].emoji}` : a;
 }
+
 
 function updateUIDOM() {
   if (!gameStarted) return;

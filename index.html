@@ -42,6 +42,10 @@
             <div class="header">
                 <h1 class="title">拍手节奏<br>HAND CLAP</h1>
                 <span class="subtitle">v1.1.0 — VISCOUS_PIGMENT_ENGINE</span>
+                <div class="controls" style="margin-top: 15px; display: flex; align-items: center; gap: 10px;">
+                    <label for="speed-slider" style="font-family: 'JetBrains Mono', monospace; font-size: 0.8rem;">RHYTHM_SPD (ms): <span id="speed-val">800</span></label>
+                    <input type="range" id="speed-slider" min="300" max="1200" step="50" value="800" style="accent-color: var(--ink); cursor: pointer;">
+                </div>
             </div>
 
             <div class="rhythm-track">
@@ -53,19 +57,8 @@
 
             <div id="result-message">等待开始...</div>
 
-            <div class="legend">
-                <div class="legend-item">
-                    <div class="legend-icon">✊</div>
-                    <div class="legend-text"><b>运气 (LUCK)</b><br>双手握拳。增加 1 个气。</div>
-                </div>
-                <div class="legend-item">
-                    <div class="legend-icon">🔫</div>
-                    <div class="legend-text"><b>攻击 (ATTACK)</b><br>消耗 0.5 气。克制“运气”。</div>
-                </div>
-                <div class="legend-item">
-                    <div class="legend-icon">🙅</div>
-                    <div class="legend-text"><b>防御 (DEFENSE)</b><br>交叉胸前。抵挡攻击。</div>
-                </div>
+            <div class="legend" id="legend-container">
+                <!-- Legend items will be populated from JS -->
             </div>
         </section>
 
@@ -73,7 +66,7 @@
             <!-- AI Panel -->
             <div class="side-panel ai-panel">
                 <div class="view-box">
-                    <img id="ai-img" src="image/NORMAL.png" alt="AI Avatar" class="ai-avatar-image">
+                    <div id="ai-img" class="ai-avatar-emoji" style="font-size: 100px; line-height: 1;">😶</div>
                 </div>
                 <div class="qi-meter">
                     <span class="qi-label">OPPONENT_ENERGY (气)</span>
